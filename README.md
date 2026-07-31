@@ -8,4 +8,8 @@
 
 A local editor for creating chess cards for Anki. Build normal study cards or interactive trainers for practising openings and other move sequences, with click-through diagrams, still images, or animated GIFs.
 
+The editor sidebar controls the card content, diagram format, board style, and export. Interactive trainers separate your moves from the opponent replies played automatically by the card.
+
+<img src="assets/sidebar-overview.png" alt="Card editor and interactive training sidebars" width="900">
+
 Chess Anki Maker creates the required Anki note type automatically and exports an `.apkg` file ready to import.
