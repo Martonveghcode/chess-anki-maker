@@ -7,15 +7,18 @@
 Chess Anki Maker is a local editor for creating standard and interactive chess cards for Anki. Arrange a position, record a move sequence, choose a click-through diagram, still image, or GIF, then export an `.apkg` file.
 
 <p align="center">
-  <img src="assets/chess-anki-maker.png" alt="Chess Anki Maker board editor" width="680"><br>
-  <sub>Arrange positions and annotate move sequences directly on the board.</sub>
+  <img src="assets/chess-anki-maker.png" alt="Chess Anki Maker board editor" width="680">
 </p>
 
-The editor panel controls the card text, direction, diagram format, animation speed, board theme, and piece style. In interactive trainer mode, the training line separates the side you play from the opponent’s automatic replies, letting the card check each move and advance through an opening or tactical sequence.
+- **Board editor:** Drag pieces to build a position, move them between squares, flip the board, or switch to Arrow mode to mark ideas and plans.
+- **Move sequence:** Save positions in order for a click-through card or GIF. In trainer mode, each move is recorded as part of the line instead.
 
 <p align="center">
-  <img src="assets/sidebar-overview.png" alt="Card editor and interactive training panels" width="680"><br>
-  <sub>Card settings on the left; interactive training controls on the right.</sub>
+  <img src="assets/sidebar-overview.png" alt="Card editor and interactive training panels" width="680">
 </p>
 
-Importing the package creates the required Anki note type automatically, so no manual card-template setup is needed.
+- **Card setup:** Add the term, explanation, and deck; choose a normal study card or an interactive trainer; and select normal, reversed, or both card directions.
+- **Diagram output:** Use Click-through to step through saved positions, GIF for an automatic animation with adjustable frame speed, or Still for a single board image.
+- **Appearance:** Board and Pieces change the board palette and chess-piece style used on the exported card.
+- **Training line:** Choose the side you want to practise. Your moves are checked during review, while the opposing moves play automatically. Undo last removes the newest move, and Start over clears the recorded line.
+- **Export:** Export Anki package builds an `.apkg` ready to import. Importing it creates the required note type automatically, so no manual card-template setup is needed.
