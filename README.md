@@ -4,12 +4,18 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Anki](https://img.shields.io/badge/Anki-00A1E4?logo=anki&logoColor=white)](https://apps.ankiweb.net/)
 
-<img src="assets/chess-anki-maker.png" alt="Chess Anki Maker board editor" width="720">
+Chess Anki Maker is a local editor for creating standard and interactive chess cards for Anki. Arrange a position, record a move sequence, choose a click-through diagram, still image, or GIF, then export an `.apkg` file.
 
-A local editor for creating chess cards for Anki. Build normal study cards or interactive trainers for practising openings and other move sequences, with click-through diagrams, still images, or animated GIFs.
+<p align="center">
+  <img src="assets/chess-anki-maker.png" alt="Chess Anki Maker board editor" width="680"><br>
+  <sub>Arrange positions and annotate move sequences directly on the board.</sub>
+</p>
 
-The editor sidebar controls the card content, diagram format, board style, and export. Interactive trainers separate your moves from the opponent replies played automatically by the card.
+The editor panel controls the card text, direction, diagram format, animation speed, board theme, and piece style. In interactive trainer mode, the training line separates the side you play from the opponent’s automatic replies, letting the card check each move and advance through an opening or tactical sequence.
 
-<img src="assets/sidebar-overview.png" alt="Card editor and interactive training sidebars" width="900">
+<p align="center">
+  <img src="assets/sidebar-overview.png" alt="Card editor and interactive training panels" width="680"><br>
+  <sub>Card settings on the left; interactive training controls on the right.</sub>
+</p>
 
-Chess Anki Maker creates the required Anki note type automatically and exports an `.apkg` file ready to import.
+Importing the package creates the required Anki note type automatically, so no manual card-template setup is needed.
