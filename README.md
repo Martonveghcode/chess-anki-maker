@@ -21,4 +21,4 @@ Chess Anki Maker is a local editor for creating standard and interactive chess c
 - **Diagram output:** Use Click-through to step through saved positions, GIF for an automatic animation with adjustable frame speed, or Still for a single board image.
 - **Appearance:** Board and Pieces change the board palette and chess-piece style used on the exported card.
 - **Training line:** Choose the side you want to practise. Your moves are checked during review, while the opposing moves play automatically. Undo last removes the newest move, and Start over clears the recorded line.
-- **Export:** Export Anki package builds an `.apkg` ready to import. Importing it creates the required note type automatically, so no manual card-template setup is needed.
+- **Export:** Export Anki package builds an `.apkg` ready to import. Importing it creates the required note type automatically, so no manual card-template setup is needed. Re-exporting unchanged content keeps the same Anki note identity; changing the term, explanation, settings, or recorded positions automatically creates a new identity, without requiring **New card**.

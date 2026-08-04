@@ -28,8 +28,10 @@ const payload = Buffer.from(JSON.stringify({
 }), "utf8").toString("base64");
 
 const listeners = new Map();
+const fillCalls = [];
 const context = {
-  fillRect() {},
+  fillStyle: "",
+  fillRect(x, y, width, height) { fillCalls.push({ x, y, width, height, color: this.fillStyle }); },
   fillText() {},
   strokeText() {},
   save() {},
@@ -50,6 +52,16 @@ const resetListeners = new Map();
 const resetButton = {
   addEventListener(type, listener) { resetListeners.set(type, listener); },
 };
+const hintListeners = new Map();
+const hintButton = {
+  disabled: false,
+  addEventListener(type, listener) { hintListeners.set(type, listener); },
+};
+const showListeners = new Map();
+const showButton = {
+  disabled: false,
+  addEventListener(type, listener) { showListeners.set(type, listener); },
+};
 const classes = new Set();
 const root = {
   dataset: { payload },
@@ -63,6 +75,8 @@ const root = {
     if (selector === ".cam-message") return message;
     if (selector === ".cam-progress") return progress;
     if (selector === ".cam-reset") return resetButton;
+    if (selector === ".cam-hint") return hintButton;
+    if (selector === ".cam-show") return showButton;
     throw new Error(`Unexpected selector: ${selector}`);
   },
 };
@@ -82,6 +96,17 @@ new Function(script)();
 
 assert.notEqual(root.innerHTML, '<div class="cam-step">Trainer unavailable</div>');
 assert.equal(message.textContent, "Your move · Play as White");
+
+assert.equal(hintButton.disabled, false);
+assert.equal(showButton.disabled, false);
+
+fillCalls.length = 0;
+hintListeners.get("click")({ preventDefault() {}, stopPropagation() {} });
+assert.deepEqual(
+  fillCalls.filter((call) => call.color === "rgba(241,193,72,.58)"),
+  [{ x: 320, y: 480, width: 80, height: 80, color: "rgba(241,193,72,.58)" }],
+  "Hint highlights the e2 origin square for the current move",
+);
 
 function center(square) {
   const file = "abcdefgh".indexOf(square[0]);
@@ -117,4 +142,23 @@ assert.equal(message.textContent, "Line complete");
 assert.ok(classes.has("is-complete"));
 assert.equal(animationFrames.size, 0);
 
-console.log("Dynamic trainer runtime behavior OK");
+assert.equal(hintButton.disabled, true);
+assert.equal(showButton.disabled, true);
+
+resetListeners.get("click")({ stopPropagation() {} });
+showListeners.get("click")({ preventDefault() {}, stopPropagation() {} });
+assert.equal(hintButton.disabled, true, "help controls are disabled during the opponent reply");
+
+let [autoId, autoTick] = animationFrames.entries().next().value;
+animationFrames.delete(autoId);
+autoTick(0);
+[autoId, autoTick] = animationFrames.entries().next().value;
+animationFrames.delete(autoId);
+autoTick(300);
+
+assert.equal(showButton.disabled, false);
+showListeners.get("click")({ preventDefault() {}, stopPropagation() {} });
+assert.equal(message.textContent, "Line complete", "Show performs the final current player move");
+assert.ok(classes.has("is-complete"));
+
+console.log("Dynamic trainer hint and show behavior OK");

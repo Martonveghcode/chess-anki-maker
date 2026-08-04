@@ -1,10 +1,11 @@
+import copy
 import json
 import sqlite3
 import tempfile
 import zipfile
 from pathlib import Path
 
-from server import genanki, make_package
+from server import genanki, make_package, versioned_note_id
 
 
 position = {"e5": "wP", "d5": "bP", "e1": "wK", "e8": "bK"}
@@ -97,21 +98,60 @@ with tempfile.TemporaryDirectory() as folder:
     connection = sqlite3.connect(database)
     try:
         assert connection.execute("select count(*) from cards").fetchone()[0] == 1
-        assert connection.execute("select guid from notes").fetchone()[0] == genanki.guid_for("chess-anki-trainer-v2", "trainer-test-note")
+        expected_note_id = versioned_note_id(
+            trainer_payload,
+            term=trainer_payload["term"],
+            explanation=trainer_payload["explanation"],
+            deck_name=trainer_payload["deckName"],
+            card_mode="trainer",
+            normal=True,
+            reversed_card=True,
+            frames=trainer_payload["frames"],
+        )
+        original_guid = connection.execute("select guid from notes").fetchone()[0]
+        assert original_guid == genanki.guid_for("chess-anki-trainer-v3", expected_note_id)
         fields = connection.execute("select flds from notes").fetchone()[0].split("\x1f")
         assert fields[0] == "Ruy Lopez"
         decoded = json.loads(__import__("base64").b64decode(fields[2]).decode("utf-8"))
         assert decoded["frames"][1]["move"] == {"from": "e2", "to": "e4", "color": "w", "piece": "wP"}
         models = json.loads(connection.execute("select models from col").fetchone()[0])
         model = next(iter(models.values()))
-        assert str(model["id"]) == "1907302401"
-        assert model["name"] == "Chess Anki Maker - Interactive Trainer v2"
+        assert str(model["id"]) == "1908042401"
+        assert model["name"] == "Chess Anki Maker - Interactive Trainer v3"
         assert "Interactive chess training board" in model["tmpls"][0]["qfmt"]
         assert "Wrong — try again" in model["tmpls"][0]["qfmt"]
         assert "state.auto.dragProgress" in model["tmpls"][0]["qfmt"]
         assert "commitPlayerMove" in model["tmpls"][0]["qfmt"]
+        assert '<button class="cam-hint" type="button">Hint</button>' in model["tmpls"][0]["qfmt"]
+        assert '<button class="cam-show" type="button">Show</button>' in model["tmpls"][0]["qfmt"]
+        assert "state.hintedFrom=frame.move.from" in model["tmpls"][0]["qfmt"]
         assert "{{Explanation}}" in model["tmpls"][0]["afmt"]
     finally:
         connection.close()
+
+
+def exported_guid(payload):
+    package_content, _ = make_package(payload)
+    with tempfile.TemporaryDirectory() as folder:
+        with zipfile.ZipFile(__import__("io").BytesIO(package_content)) as archive:
+            database = Path(folder) / "collection.anki2"
+            database.write_bytes(archive.read("collection.anki2"))
+        connection = sqlite3.connect(database)
+        try:
+            return connection.execute("select guid from notes").fetchone()[0]
+        finally:
+            connection.close()
+
+
+assert exported_guid(trainer_payload) == original_guid
+changed_term = copy.deepcopy(trainer_payload)
+changed_term["term"] = "Ruy Lopez continuation"
+assert exported_guid(changed_term) != original_guid
+changed_explanation = copy.deepcopy(trainer_payload)
+changed_explanation["explanation"] += " Develop the bishop next."
+assert exported_guid(changed_explanation) != original_guid
+changed_position = copy.deepcopy(trainer_payload)
+changed_position["frames"][-1]["position"]["h3"] = changed_position["frames"][-1]["position"].pop("f3")
+assert exported_guid(changed_position) != original_guid
 
 print("trainer export test passed")
