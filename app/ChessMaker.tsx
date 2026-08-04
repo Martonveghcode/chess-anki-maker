@@ -422,6 +422,25 @@ export function ChessMaker() {
     if (loaded) localStorage.setItem("chess-anki-maker:language", language);
   }, [language, loaded]);
 
+  useEffect(() => {
+    const signalPageActive = () => {
+      void fetch("/api/page-active", { method: "POST", keepalive: true }).catch(() => undefined);
+    };
+    const shutdownOnPageClose = () => {
+      const queued = navigator.sendBeacon("/api/page-closed");
+      if (!queued) {
+        void fetch("/api/page-closed", { method: "POST", keepalive: true });
+      }
+    };
+    signalPageActive();
+    const heartbeat = window.setInterval(signalPageActive, 1000);
+    window.addEventListener("pagehide", shutdownOnPageClose);
+    return () => {
+      window.clearInterval(heartbeat);
+      window.removeEventListener("pagehide", shutdownOnPageClose);
+    };
+  }, []);
+
   const squares = useMemo(() => squareOrder(draft.orientation), [draft.orientation]);
   const theme = THEMES[draft.boardTheme];
   const activeFrameIndex = Math.max(0, draft.frames.findIndex((frame) => frame.id === draft.activeFrameId));

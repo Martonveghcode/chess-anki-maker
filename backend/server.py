@@ -32,10 +32,11 @@ HOST = "127.0.0.1"
 PORT = 8791
 MODEL_ID = 1907222401
 MODEL_NAME = "Chess Anki Maker - Basic & Reversed"
-# Keep the v2 model and note identities separate so imports cannot rewrite existing trainers.
-TRAINER_MODEL_ID = 1907302401
-TRAINER_MODEL_NAME = "Chess Anki Maker - Interactive Trainer v2"
+# Keep the v3 model and note identities separate so future imports cannot rewrite older trainers.
+TRAINER_MODEL_ID = 1908042401
+TRAINER_MODEL_NAME = "Chess Anki Maker - Interactive Trainer v3"
 MAX_REQUEST_BYTES = 40 * 1024 * 1024
+PAGE_CLOSE_GRACE_SECONDS = 2.5
 
 
 def stop_server(server: ThreadingHTTPServer) -> None:
@@ -43,6 +44,17 @@ def stop_server(server: ThreadingHTTPServer) -> None:
     server.server_close()
     time.sleep(0.1)
     os._exit(0)
+
+
+def mark_page_active(server: ThreadingHTTPServer) -> None:
+    setattr(server, "last_page_activity", time.monotonic())
+
+
+def stop_server_if_page_stays_closed(server: ThreadingHTTPServer, closed_at: float) -> None:
+    time.sleep(PAGE_CLOSE_GRACE_SECONDS)
+    if getattr(server, "last_page_activity", 0.0) > closed_at:
+        return
+    stop_server(server)
 
 
 def resource_path(name: str) -> Path:
@@ -76,6 +88,11 @@ CARD_CSS = r"""
 .cam-message { color: #e5e7e9; font-size: 14px; font-weight: 700; }
 .cam-progress { color: #969da6; font-size: 11px; }
 .cam-reset { min-height: 30px; padding: 5px 11px; border: 1px solid #484e57; border-radius: 5px; background: #30353c; color: #e7e9eb; cursor: pointer; }
+.cam-trainer-help { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.cam-trainer-help button { min-width: 82px; min-height: 34px; padding: 6px 13px; border: 1px solid #484e57; border-radius: 6px; background: #30353c; color: #e7e9eb; font-size: 13px; font-weight: 700; cursor: pointer; }
+.cam-trainer-help button:active:not(:disabled) { background: #3b4149; }
+.cam-trainer-help button:disabled { color: #777e87; cursor: default; opacity: .58; }
+.cam-show { border-color: #52705e !important; background: #31483a !important; }
 .cam-trainer.is-wrong canvas { box-shadow: 0 0 0 3px rgba(217,79,79,.9), 0 0 24px rgba(217,79,79,.32); }
 .cam-trainer.is-correct canvas { box-shadow: 0 0 0 3px rgba(74,174,116,.9), 0 0 24px rgba(74,174,116,.3); }
 .cam-trainer.is-complete canvas { box-shadow: 0 0 0 4px rgba(80,190,126,.95), 0 0 34px rgba(80,190,126,.42); animation: cam-finish .8s ease-out; }
@@ -208,14 +225,18 @@ TRAINER_SCRIPT = r"""
     for(var n=0;n<movingPieces.length;n++)drawPiece(ctx,movingPieces[n].piece,movingPieces[n].x,movingPieces[n].y,style);
   }
   function expected(state,offset){return state.data.frames[state.index+(offset||1)]||null;}
+  function helpFrame(state){var frame=expected(state),move=frame&&frame.move;return !state.locked&&!state.complete&&!state.auto&&!state.pointer&&move&&move.color===state.player?frame:null;}
+  function updateHelp(root,state){var enabled=!!helpFrame(state);root.querySelector('.cam-hint').disabled=!enabled;root.querySelector('.cam-show').disabled=!enabled;}
   function setStatus(root,state,message,kind){
     root.classList.remove('is-wrong','is-correct');if(kind)root.classList.add(kind);
     root.querySelector('.cam-message').textContent=message;
     root.querySelector('.cam-progress').textContent=state.index+' / '+(state.data.frames.length-1)+' moves';
+    updateHelp(root,state);
   }
   function playerFrame(state){var frame=expected(state,state.auto?2:1),move=frame&&frame.move;return move&&move.color===state.player?frame:null;}
   function highlights(state){
     var result=[];
+    if(state.hintedFrom)result.push({square:state.hintedFrom,color:'rgba(241,193,72,.58)'});
     if(state.auto){var move=state.auto.frame.move;result.push({square:move.from,color:'rgba(239,196,76,.32)'},{square:move.to,color:'rgba(239,196,76,.5)'});}
     if(state.pointer&&state.pointer.moved)result.push({square:state.pointer.from,color:'rgba(241,193,72,.35)'});
     else if(state.selected)result.push({square:state.selected,color:'rgba(241,193,72,.52)'});
@@ -239,6 +260,7 @@ TRAINER_SCRIPT = r"""
   function startAuto(root,state,frame){
     var move=frame.move,orientation=state.data.settings.orientation,from=point(move.from,orientation,640),to=point(move.to,orientation,640);
     var animation={frame:frame,piece:state.position[move.from]||move.piece,from:from,to:to,startedAt:null,duration:260,progress:0,dragProgress:0,visual:null,raf:0};
+    state.hintedFrom=null;
     state.auto=animation;state.selected=null;state.locked=false;setStatus(root,state,'Opponent is moving…',null);
     function tick(now){
       if(state.auto!==animation)return;
@@ -251,6 +273,7 @@ TRAINER_SCRIPT = r"""
     animation.raf=requestAnimationFrame(tick);
   }
   function commitPlayerMove(root,state,frame){
+    state.hintedFrom=null;
     var move=frame.move;state.position=copy(frame.position);state.index+=1;state.selected=null;state.locked=false;
     render(root,state,[{square:move.from,color:'rgba(66,194,117,.26)'},{square:move.to,color:'rgba(66,194,117,.55)'}]);
     advance(root,state);
@@ -265,7 +288,7 @@ TRAINER_SCRIPT = r"""
   function wrong(root,state,fromSquare,toSquare){
     var piece=state.position[fromSquare];if(!piece)return;var orientation=state.data.settings.orientation,start=point(fromSquare,orientation,640),end=point(toSquare,orientation,640),startTime=null,duration=380,token=++state.wrongToken;
     state.locked=true;state.selected=null;setStatus(root,state,'Wrong — try again','is-wrong');
-    function tick(now){if(token!==state.wrongToken)return;if(startTime===null)startTime=now;var progress=Math.min(1,(now-startTime)/duration),travel=progress<.5?progress*2:(1-progress)*2;draw(root,state,[{square:fromSquare,color:'rgba(218,65,65,.35)'},{square:toSquare,color:'rgba(218,65,65,.58)'}],{from:fromSquare,piece:piece,x:start.x+(end.x-start.x)*travel,y:start.y+(end.y-start.y)*travel});if(progress<1){requestAnimationFrame(tick);return;}state.locked=false;draw(root,state,[{square:fromSquare,color:'rgba(218,65,65,.22)'}]);setTimeout(function(){if(token===state.wrongToken){root.classList.remove('is-wrong');draw(root,state,[]);}},420);}
+    function tick(now){if(token!==state.wrongToken)return;if(startTime===null)startTime=now;var progress=Math.min(1,(now-startTime)/duration),travel=progress<.5?progress*2:(1-progress)*2;draw(root,state,[{square:fromSquare,color:'rgba(218,65,65,.35)'},{square:toSquare,color:'rgba(218,65,65,.58)'}],{from:fromSquare,piece:piece,x:start.x+(end.x-start.x)*travel,y:start.y+(end.y-start.y)*travel});if(progress<1){requestAnimationFrame(tick);return;}state.locked=false;updateHelp(root,state);draw(root,state,[{square:fromSquare,color:'rgba(218,65,65,.22)'}]);setTimeout(function(){if(token===state.wrongToken){root.classList.remove('is-wrong');render(root,state);}},420);}
     requestAnimationFrame(tick);
   }
   function attempt(root,state,fromSquare,toSquare){
@@ -273,8 +296,8 @@ TRAINER_SCRIPT = r"""
   }
   function selectSquare(root,state,square){
     if(!square||state.locked||state.complete||state.auto)return;
-    if(state.selected){if(state.selected===square){state.selected=null;draw(root,state,[]);}else{var fromSquare=state.selected;state.selected=null;attempt(root,state,fromSquare,square);}return;}
-    if(state.position[square]){state.selected=square;draw(root,state,[{square:square,color:'rgba(241,193,72,.52)'}]);}
+    if(state.selected){if(state.selected===square){state.selected=null;render(root,state);}else{var fromSquare=state.selected;state.selected=null;attempt(root,state,fromSquare,square);}return;}
+    if(state.position[square]){state.selected=square;render(root,state);}
   }
   function dragProgress(pointer,state){
     var orientation=state.data.settings.orientation,start=point(pointer.from,orientation,640),end=point(pointer.target,orientation,640),dx=end.x-start.x,dy=end.y-start.y,length=dx*dx+dy*dy;
@@ -282,12 +305,14 @@ TRAINER_SCRIPT = r"""
   }
   function reset(root,state){
     if(state.auto&&state.auto.raf&&typeof cancelAnimationFrame==='function')cancelAnimationFrame(state.auto.raf);
-    state.wrongToken+=1;root.classList.remove('is-wrong','is-correct','is-complete');state.index=0;state.position=copy(state.data.frames[0].position);state.selected=null;state.pointer=null;state.auto=null;state.locked=false;state.complete=false;draw(root,state,[]);setStatus(root,state,'Get ready',null);advance(root,state);
+    state.wrongToken+=1;root.classList.remove('is-wrong','is-correct','is-complete');state.index=0;state.position=copy(state.data.frames[0].position);state.selected=null;state.hintedFrom=null;state.pointer=null;state.auto=null;state.locked=false;state.complete=false;draw(root,state,[]);setStatus(root,state,'Get ready',null);advance(root,state);
   }
+  function showHint(root,state){var frame=helpFrame(state);if(!frame)return;state.selected=null;state.hintedFrom=frame.move.from;render(root,state);}
+  function showMove(root,state){var frame=helpFrame(state);if(!frame)return;state.wrongToken+=1;root.classList.remove('is-wrong');commitPlayerMove(root,state,frame);}
   roots.forEach(function(root){
     if(root.dataset.ready)return;root.dataset.ready='1';
     try{
-      var data=decode(root.dataset.payload),canvas=root.querySelector('canvas'),state={data:data,index:0,position:{},selected:null,pointer:null,auto:null,locked:false,complete:false,wrongToken:0,player:data.settings.orientation==='black'?'b':'w'};
+      var data=decode(root.dataset.payload),canvas=root.querySelector('canvas'),state={data:data,index:0,position:{},selected:null,hintedFrom:null,pointer:null,auto:null,locked:false,complete:false,wrongToken:0,player:data.settings.orientation==='black'?'b':'w'};
       canvas.addEventListener('pointerdown',function(event){
         if(state.locked||state.complete||state.pointer)return;event.preventDefault();
         var square=squareAt(canvas,event,data.settings.orientation),frame=playerFrame(state),move=frame&&frame.move,piece=square&&(state.auto?state.auto.frame.position[square]:state.position[square]);
@@ -308,6 +333,8 @@ TRAINER_SCRIPT = r"""
       });
       canvas.addEventListener('pointercancel',function(){state.pointer=null;state.selected=null;render(root,state);});
       root.querySelector('.cam-reset').addEventListener('click',function(event){event.stopPropagation();reset(root,state);});
+      root.querySelector('.cam-hint').addEventListener('click',function(event){event.preventDefault();event.stopPropagation();showHint(root,state);});
+      root.querySelector('.cam-show').addEventListener('click',function(event){event.preventDefault();event.stopPropagation();showMove(root,state);});
       reset(root,state);
     }catch(error){root.innerHTML='<div class="cam-step">Trainer unavailable</div>';}
   });
@@ -322,6 +349,10 @@ TRAINER_HTML = r"""
   <div class="cam-trainer-bar">
     <div class="cam-trainer-status"><span class="cam-message">Get ready</span><span class="cam-progress"></span></div>
     <button class="cam-reset" type="button">Restart</button>
+  </div>
+  <div class="cam-trainer-help">
+    <button class="cam-hint" type="button">Hint</button>
+    <button class="cam-show" type="button">Show</button>
   </div>
 </div>
 """ + TRAINER_SCRIPT
@@ -441,6 +472,42 @@ def training_payload(data: dict[str, object]) -> str:
     return base64.b64encode(raw).decode("ascii")
 
 
+def versioned_note_id(
+    data: dict[str, object],
+    *,
+    term: str,
+    explanation: str,
+    deck_name: str,
+    card_mode: str,
+    normal: bool,
+    reversed_card: bool,
+    frames: list[object],
+) -> str:
+    """Keep identical exports stable while giving changed card content a new identity."""
+    base_note_id = str(data.get("noteId") or hashlib.sha1(os.urandom(24)).hexdigest())
+    identity: dict[str, object] = {
+        "term": term,
+        "explanation": explanation,
+        "deckName": deck_name,
+        "cardMode": card_mode,
+        "orientation": data.get("orientation", "white"),
+        "boardTheme": data.get("boardTheme", "walnut"),
+        "pieceStyle": data.get("pieceStyle", "classic"),
+        "frames": frames,
+    }
+    if card_mode != "trainer":
+        identity.update(
+            {
+                "normal": normal,
+                "reversed": reversed_card,
+                "diagramMode": data.get("diagramMode", "interactive"),
+                "gifSpeed": data.get("gifSpeed", 900),
+            }
+        )
+    raw = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return f"{base_note_id}:{hashlib.sha1(raw).hexdigest()}"
+
+
 def make_package(data: dict[str, object]) -> tuple[bytes, str]:
     term_text = str(data.get("term") or "").strip()
     explanation_text = str(data.get("explanation") or "").strip()
@@ -456,20 +523,28 @@ def make_package(data: dict[str, object]) -> tuple[bytes, str]:
         raise ValueError("Add at least one board state")
 
     deck_name = clean_deck_name(data.get("deckName"))
+    note_id = versioned_note_id(
+        data,
+        term=term_text,
+        explanation=explanation_text,
+        deck_name=deck_name,
+        card_mode=card_mode,
+        normal=normal,
+        reversed_card=reversed_card,
+        frames=frames,
+    )
     with tempfile.TemporaryDirectory(prefix="chess_anki_maker_") as temp_dir:
         temp = Path(temp_dir)
         media_files: list[str] = []
         term = html.escape(term_text)
         explanation = html.escape(explanation_text).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
-        note_id = str(data.get("noteId") or hashlib.sha1(os.urandom(24)).hexdigest())
-
         if card_mode == "trainer":
             trainer_data = training_payload(data)
             note = genanki.Note(
                 model=build_training_model(),
                 fields=[term, explanation, trainer_data],
                 tags=["chess_anki_maker", "interactive_chess_trainer"],
-                guid=genanki.guid_for("chess-anki-trainer-v2", note_id),
+                guid=genanki.guid_for("chess-anki-trainer-v3", note_id),
             )
         else:
             diagram_mode = str(data.get("diagramMode") or "interactive")
@@ -532,6 +607,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self.send_bytes(b'{"ok":true}', "application/json")
             return
+        mark_page_active(self.server)
         relative = unquote(path.lstrip("/")) or "index.html"
         candidate = (STATIC_ROOT / relative).resolve()
         try:
@@ -549,6 +625,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
+        if path == "/api/page-active":
+            mark_page_active(self.server)
+            self.send_bytes(b'{"ok":true}', "application/json")
+            return
+        if path == "/api/page-closed":
+            closed_at = time.monotonic()
+            self.send_bytes(b'{"ok":true}', "application/json")
+            threading.Thread(target=stop_server_if_page_stays_closed, args=(self.server, closed_at), daemon=True).start()
+            return
         if path == "/api/shutdown":
             self.send_bytes(b'{"ok":true}', "application/json")
             threading.Thread(target=stop_server, args=(self.server,), daemon=True).start()
