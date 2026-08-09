@@ -66,6 +66,132 @@ def resource_path(name: str) -> Path:
 
 
 STATIC_ROOT = resource_path("desktop-dist")
+DATA_ROOT = Path(os.getenv("CHESS_ANKI_MAKER_DATA_DIR") or (Path(os.getenv("LOCALAPPDATA", Path.home())) / "ChessAnkiMaker"))
+LINES_PATH = DATA_ROOT / "lines.json"
+
+
+def empty_line_library() -> dict[str, object]:
+    return {"version": 1, "folders": [], "lines": []}
+
+
+def normalize_line_library(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError("Invalid line library")
+
+    raw_folders = value.get("folders", [])
+    raw_lines = value.get("lines", [])
+    if not isinstance(raw_folders, list) or not isinstance(raw_lines, list):
+        raise ValueError("Invalid line library")
+    if len(raw_folders) > 500 or len(raw_lines) > 5000:
+        raise ValueError("Line library is too large")
+
+    folders: list[dict[str, object]] = []
+    folder_ids: set[str] = set()
+    for raw in raw_folders:
+        if not isinstance(raw, dict):
+            continue
+        folder_id = str(raw.get("id") or "").strip()[:120]
+        name = str(raw.get("name") or "").strip()[:160]
+        if not folder_id or not name or folder_id in folder_ids:
+            continue
+        folder_ids.add(folder_id)
+        folders.append(
+            {
+                "id": folder_id,
+                "name": name,
+                "collapsed": bool(raw.get("collapsed", False)),
+                "createdAt": str(raw.get("createdAt") or "")[:80],
+            }
+        )
+
+    allowed_orientations = {"white", "black"}
+    allowed_themes = {"walnut", "graphite", "blue", "green", "sand", "burgundy", "purple", "ice"}
+    allowed_styles = {"classic", "clean", "glass", "staunton", "merida", "tournament", "minimal", "outline"}
+    allowed_pieces = {f"{color}{kind}" for color in "wb" for kind in "KQRBNP"}
+    lines: list[dict[str, object]] = []
+    line_ids: set[str] = set()
+    for raw in raw_lines:
+        if not isinstance(raw, dict):
+            continue
+        line_id = str(raw.get("id") or "").strip()[:120]
+        name = str(raw.get("name") or "").strip()[:200]
+        if not line_id or not name or line_id in line_ids:
+            continue
+        line_ids.add(line_id)
+        folder_id_value = raw.get("folderId")
+        folder_id = str(folder_id_value).strip()[:120] if folder_id_value else None
+        if folder_id not in folder_ids:
+            folder_id = None
+
+        raw_frames = raw.get("frames", [])
+        if not isinstance(raw_frames, list) or len(raw_frames) < 2 or len(raw_frames) > 500:
+            continue
+        frames: list[dict[str, object]] = []
+        for raw_frame in raw_frames:
+            if not isinstance(raw_frame, dict):
+                continue
+            raw_position = raw_frame.get("position", {})
+            if not isinstance(raw_position, dict):
+                raw_position = {}
+            position = {
+                str(square): str(piece)
+                for square, piece in raw_position.items()
+                if re.fullmatch(r"[a-h][1-8]", str(square))
+                and str(piece) in allowed_pieces
+            }
+            arrows = raw_frame.get("arrows", [])
+            frame: dict[str, object] = {
+                "id": str(raw_frame.get("id") or hashlib.sha1(os.urandom(16)).hexdigest())[:120],
+                "label": str(raw_frame.get("label") or "Position")[:200],
+                "position": position,
+                "arrows": arrows if isinstance(arrows, list) else [],
+            }
+            move = raw_frame.get("move")
+            if isinstance(move, dict):
+                from_square = str(move.get("from") or "")
+                to_square = str(move.get("to") or "")
+                piece = str(move.get("piece") or "")
+                color = str(move.get("color") or "")
+                if re.fullmatch(r"[a-h][1-8]", from_square) and re.fullmatch(r"[a-h][1-8]", to_square) and piece in allowed_pieces and color in {"w", "b"}:
+                    frame["move"] = {"from": from_square, "to": to_square, "piece": piece, "color": color}
+            frames.append(frame)
+        if len(frames) < 2:
+            continue
+
+        orientation = str(raw.get("orientation") or "white")
+        board_theme = str(raw.get("boardTheme") or "walnut")
+        piece_style = str(raw.get("pieceStyle") or "classic")
+        lines.append(
+            {
+                "id": line_id,
+                "name": name,
+                "explanation": str(raw.get("explanation") or "")[:5000],
+                "folderId": folder_id,
+                "orientation": orientation if orientation in allowed_orientations else "white",
+                "boardTheme": board_theme if board_theme in allowed_themes else "walnut",
+                "pieceStyle": piece_style if piece_style in allowed_styles else "classic",
+                "frames": frames,
+                "createdAt": str(raw.get("createdAt") or "")[:80],
+                "updatedAt": str(raw.get("updatedAt") or "")[:80],
+            }
+        )
+    return {"version": 1, "folders": folders, "lines": lines}
+
+
+def load_line_library() -> dict[str, object]:
+    try:
+        return normalize_line_library(json.loads(LINES_PATH.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return empty_line_library()
+
+
+def save_line_library(value: object) -> dict[str, object]:
+    library = normalize_line_library(value)
+    LINES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary = LINES_PATH.with_suffix(".tmp")
+    temporary.write_text(json.dumps(library, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(LINES_PATH)
+    return library
 
 
 CARD_CSS = r"""
@@ -141,7 +267,7 @@ INTERACTIVE_SCRIPT = r"""
     ctx.fillStyle=theme.border; ctx.fillRect(0,0,size,size);
     for(var row=0;row<8;row++) for(var col=0;col<8;col++) {
       var square=files[col]+ranks[row], fileIndex='abcdefgh'.indexOf(square[0]), rank=Number(square[1]);
-      ctx.fillStyle=(fileIndex+rank)%2===1?theme.light:theme.dark; ctx.fillRect(col*cell,row*cell,cell,cell);
+      ctx.fillStyle=(fileIndex+rank)%2===0?theme.light:theme.dark; ctx.fillRect(col*cell,row*cell,cell,cell);
       var piece=frame.position[square];
       if(piece){
         var style=styles[settings.pieceStyle]||styles.classic;
@@ -216,7 +342,7 @@ TRAINER_SCRIPT = r"""
     canvas.width=size;canvas.height=size;ctx.fillStyle=theme.border;ctx.fillRect(0,0,size,size);
     for(var row=0;row<8;row++)for(var col=0;col<8;col++){
       var square=a.files[col]+a.ranks[row],fileIndex='abcdefgh'.indexOf(square[0]),rank=Number(square[1]);
-      ctx.fillStyle=(fileIndex+rank)%2===1?theme.light:theme.dark;ctx.fillRect(col*cell,row*cell,cell,cell);
+      ctx.fillStyle=(fileIndex+rank)%2===0?theme.light:theme.dark;ctx.fillRect(col*cell,row*cell,cell,cell);
       for(var h=0;h<(highlights||[]).length;h++)if(highlights[h].square===square){ctx.fillStyle=highlights[h].color;ctx.fillRect(col*cell,row*cell,cell,cell);}
       var hidden=false;for(var m=0;m<movingPieces.length;m++)if(movingPieces[m].from===square){hidden=true;break;}
       var piece=state.position[square];if(piece&&!hidden)drawPiece(ctx,piece,col*cell+cell/2,row*cell+cell/2,style);
@@ -602,10 +728,25 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
+    def send_json(self, value: object, status: int = 200) -> None:
+        self.send_bytes(json.dumps(value, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8", status)
+
+    def read_json_body(self) -> dict[str, object]:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0 or length > MAX_REQUEST_BYTES:
+            raise ValueError("Request is too large")
+        payload = json.loads(self.rfile.read(length))
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid request data")
+        return payload
+
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
         if path == "/api/health":
             self.send_bytes(b'{"ok":true}', "application/json")
+            return
+        if path == "/api/lines":
+            self.send_json({"ok": True, "library": load_line_library()})
             return
         mark_page_active(self.server)
         relative = unquote(path.lstrip("/")) or "index.html"
@@ -638,16 +779,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bytes(b'{"ok":true}', "application/json")
             threading.Thread(target=stop_server, args=(self.server,), daemon=True).start()
             return
+        if path == "/api/lines":
+            try:
+                payload = self.read_json_body()
+                library = save_line_library(payload.get("library"))
+                self.send_json({"ok": True, "library": library})
+            except (ValueError, json.JSONDecodeError) as error:
+                self.send_json({"ok": False, "message": str(error)}, 400)
+            except OSError:
+                self.send_json({"ok": False, "message": "Could not save the line library"}, 500)
+            return
         if path != "/api/export":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > MAX_REQUEST_BYTES:
-                raise ValueError("Export is too large")
-            payload = json.loads(self.rfile.read(length))
-            if not isinstance(payload, dict):
-                raise ValueError("Invalid export data")
+            payload = self.read_json_body()
             content, filename = make_package(payload)
             self.send_bytes(
                 content,

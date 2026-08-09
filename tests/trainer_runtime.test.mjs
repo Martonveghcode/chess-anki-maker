@@ -99,6 +99,16 @@ assert.equal(message.textContent, "Your move · Play as White");
 
 assert.equal(hintButton.disabled, false);
 assert.equal(showButton.disabled, false);
+assert.equal(
+  fillCalls.find((call) => call.x === 560 && call.y === 0 && call.width === 80)?.color,
+  "#8a6747",
+  "h8 is a dark square when viewed from White's side",
+);
+assert.equal(
+  fillCalls.find((call) => call.x === 0 && call.y === 0 && call.width === 80)?.color,
+  "#d8c2a4",
+  "a8 is light and square colors stay tied to their chess coordinates",
+);
 
 fillCalls.length = 0;
 hintListeners.get("click")({ preventDefault() {}, stopPropagation() {} });
