@@ -21,4 +21,8 @@ Chess Anki Maker is a local editor for creating standard and interactive chess c
 - **Diagram output:** Use Click-through to step through saved positions, GIF for an automatic animation with adjustable frame speed, or Still for a single board image.
 - **Appearance:** Board and Pieces change the board palette and chess-piece style used on the exported card.
 - **Training line:** Choose the side you want to practise. Your moves are checked during review, while the opposing moves play automatically. Undo last removes the newest move, and Start over clears the recorded line.
+- **Local line library:** Use **Save line** beside the Anki export button, then switch to **Lines** to practise it without exporting a card. Lines can be renamed, deleted, dragged into folders, and selected as a custom practice set. Practice uses the same smooth canvas interactions as exported trainers, including adaptive dragging, animated replies, red/green move feedback, and **Back**, **Restart**, **Hint**, and **Show move** controls.
+- **Practice modes:** Normal follows the current folder in order; Random draws continuously from the selected folders and lines. Settings provide auto-repeat, auto-next, and looping.
 - **Export:** Export Anki package builds an `.apkg` ready to import. Importing it creates the required note type automatically, so no manual card-template setup is needed. Re-exporting unchanged content keeps the same Anki note identity; changing the term, explanation, settings, or recorded positions automatically creates a new identity, without requiring **New card**.
+
+The desktop app stores the line library as `lines.json` in `%LOCALAPPDATA%\ChessAnkiMaker`.

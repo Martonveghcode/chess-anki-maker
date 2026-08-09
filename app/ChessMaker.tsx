@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, DragEvent, MouseEvent, PointerEvent } from "react";
 import { GIFEncoder, applyPalette, quantize } from "gifenc";
+import { LinesWorkspace } from "./LinesWorkspace";
+import { appendSavedLine, type SavedLine } from "./line-library";
 
 type Color = "w" | "b";
 type Kind = "K" | "Q" | "R" | "B" | "N" | "P";
@@ -13,6 +15,7 @@ type DiagramMode = "interactive" | "gif" | "still";
 type CardMode = "study" | "trainer";
 type Orientation = "white" | "black";
 type Language = "en" | "es" | "fr";
+type AppView = "anki" | "lines";
 type BoardTheme = "walnut" | "graphite" | "blue" | "green" | "sand" | "burgundy" | "purple" | "ice";
 type PieceStyle = "classic" | "clean" | "glass" | "staunton" | "merida" | "tournament" | "minimal" | "outline";
 
@@ -101,6 +104,7 @@ const UI_TEXT = {
     diagram: "Diagram", clickThrough: "Click-through", still: "Still", youPlay: "You play", white: "White", black: "Black",
     trainerInstructions: "Record both sides on the board. Your moves become prompts; the other side plays automatically.", frameSpeed: "Frame speed", board: "Board", pieces: "Pieces",
     exportAnki: "Export Anki package", downloadGif: "Download GIF", move: "Move", arrow: "Arrow", recording: "Recording", flip: "Flip", reset: "Reset", back: "Back", undoArrow: "Undo arrow",
+    ankiTab: "Anki", linesTab: "Lines", settings: "Settings", saveLine: "Save line", lineSaved: "Line saved locally", lineSaveFailed: "Could not save the line",
     chessEditor: "Chess diagram editor", pieceTray: "Piece tray", placePiece: "Place", arrowColor: "Arrow color", width: "Width",
     trainingLine: "Training line", moveSingular: "move", moves: "moves", undoLast: "Undo last", startOver: "Start over", recordedMoves: "Recorded white and black moves",
     you: "YOU", automatic: "AUTO", noMovesYet: "No moves yet", sequence: "Sequence", state: "state", states: "states", addState: "Add state", update: "Update",
@@ -119,6 +123,7 @@ const UI_TEXT = {
     diagram: "Diagrama", clickThrough: "Paso a paso", still: "Imagen fija", youPlay: "Juegas con", white: "Blancas", black: "Negras",
     trainerInstructions: "Registra ambos bandos en el tablero. Tus movimientos se convierten en indicaciones; el otro bando juega automáticamente.", frameSpeed: "Velocidad de fotograma", board: "Tablero", pieces: "Piezas",
     exportAnki: "Exportar paquete de Anki", downloadGif: "Descargar GIF", move: "Mover", arrow: "Flecha", recording: "Grabando", flip: "Voltear", reset: "Restablecer", back: "Atrás", undoArrow: "Deshacer flecha",
+    ankiTab: "Anki", linesTab: "Líneas", settings: "Ajustes", saveLine: "Guardar línea", lineSaved: "Línea guardada localmente", lineSaveFailed: "No se pudo guardar la línea",
     chessEditor: "Editor de diagramas de ajedrez", pieceTray: "Bandeja de piezas", placePiece: "Colocar", arrowColor: "Color de flecha", width: "Grosor",
     trainingLine: "Línea de entrenamiento", moveSingular: "movimiento", moves: "movimientos", undoLast: "Deshacer último", startOver: "Empezar de nuevo", recordedMoves: "Movimientos registrados de blancas y negras",
     you: "TÚ", automatic: "AUTO", noMovesYet: "Aún no hay movimientos", sequence: "Secuencia", state: "estado", states: "estados", addState: "Añadir estado", update: "Actualizar",
@@ -137,6 +142,7 @@ const UI_TEXT = {
     diagram: "Diagramme", clickThrough: "Pas à pas", still: "Image fixe", youPlay: "Vous jouez", white: "les Blancs", black: "les Noirs",
     trainerInstructions: "Enregistrez les deux camps sur l’échiquier. Vos coups deviennent des invites et l’autre camp joue automatiquement.", frameSpeed: "Vitesse des images", board: "Échiquier", pieces: "Pièces",
     exportAnki: "Exporter le paquet Anki", downloadGif: "Télécharger le GIF", move: "Déplacer", arrow: "Flèche", recording: "Enregistrement", flip: "Retourner", reset: "Réinitialiser", back: "Retour", undoArrow: "Annuler la flèche",
+    ankiTab: "Anki", linesTab: "Lignes", settings: "Réglages", saveLine: "Enregistrer la ligne", lineSaved: "Ligne enregistrée localement", lineSaveFailed: "Impossible d’enregistrer la ligne",
     chessEditor: "Éditeur de diagrammes d’échecs", pieceTray: "Réserve de pièces", placePiece: "Placer", arrowColor: "Couleur de flèche", width: "Épaisseur",
     trainingLine: "Ligne d’entraînement", moveSingular: "coup", moves: "coups", undoLast: "Annuler le dernier", startOver: "Recommencer", recordedMoves: "Coups blancs et noirs enregistrés",
     you: "VOUS", automatic: "AUTO", noMovesYet: "Aucun coup pour le moment", sequence: "Séquence", state: "état", states: "états", addState: "Ajouter un état", update: "Mettre à jour",
@@ -283,7 +289,7 @@ function drawFrame(
     const y = Math.floor(index / 8) * cell;
     const file = FILES.indexOf(square[0]);
     const rank = Number(square[1]);
-    ctx.fillStyle = (file + rank) % 2 === 1 ? theme.light : theme.dark;
+    ctx.fillStyle = (file + rank) % 2 === 0 ? theme.light : theme.dark;
     ctx.fillRect(x, y, cell, cell);
     const piece = frame.position[square];
     if (piece) {
@@ -381,13 +387,15 @@ function ArrowCanvas({ arrows, orientation }: { arrows: BoardArrow[]; orientatio
 export function ChessMaker() {
   const [draft, setDraft] = useState<SavedDraft>(() => newDraft());
   const [language, setLanguage] = useState<Language>("en");
+  const [appView, setAppView] = useState<AppView>("anki");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [tool, setTool] = useState<Tool>("move");
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
   const [arrowStart, setArrowStart] = useState<Square | null>(null);
   const [arrowColor, setArrowColor] = useState(ARROW_COLORS[0]);
   const [arrowWidth, setArrowWidth] = useState(8);
   const [lastMove, setLastMove] = useState("");
-  const [status, setStatus] = useState(UI_TEXT.en.ready);
+  const [status, setStatus] = useState<string>(UI_TEXT.en.ready);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const previewCanvas = useRef<HTMLCanvasElement>(null);
@@ -399,7 +407,9 @@ export function ChessMaker() {
       try {
         const saved = localStorage.getItem("chess-anki-maker:draft");
         const savedLanguage = localStorage.getItem("chess-anki-maker:language") as Language | null;
+        const savedView = localStorage.getItem("chess-anki-maker:view") as AppView | null;
         if (savedLanguage && LANGUAGE_OPTIONS.some((option) => option.code === savedLanguage)) setLanguage(savedLanguage);
+        if (savedView === "anki" || savedView === "lines") setAppView(savedView);
         if (saved) {
           const parsed = JSON.parse(saved) as Partial<SavedDraft>;
           setDraft({ ...newDraft(), ...parsed, cardMode: parsed.cardMode ?? "study" });
@@ -421,6 +431,10 @@ export function ChessMaker() {
     document.documentElement.lang = language;
     if (loaded) localStorage.setItem("chess-anki-maker:language", language);
   }, [language, loaded]);
+
+  useEffect(() => {
+    if (loaded) localStorage.setItem("chess-anki-maker:view", appView);
+  }, [appView, loaded]);
 
   useEffect(() => {
     const signalPageActive = () => {
@@ -737,6 +751,45 @@ export function ChessMaker() {
     }
   }
 
+  async function saveCurrentLine() {
+    if (!draft.term.trim()) return setStatus(t.addTerm);
+    const exportedFrames = trainingFramesForExport();
+    if (exportedFrames.length < 2) return setStatus(t.recordLine);
+    if (exportedFrames.slice(1).some((frame) => !frame.move)) return setStatus(t.invalidTraining);
+    const player = draft.orientation === "white" ? "w" : "b";
+    if (!exportedFrames.slice(1).some((frame) => frame.move?.color === player)) {
+      return setStatus(t.recordPlayerMove.replace("{color}", draft.orientation === "white" ? t.white : t.black));
+    }
+    setBusy(true);
+    try {
+      const now = new Date().toISOString();
+      const line: SavedLine = {
+        id: uid(),
+        name: draft.term.trim(),
+        explanation: draft.explanation.trim(),
+        folderId: null,
+        orientation: draft.orientation,
+        boardTheme: draft.boardTheme,
+        pieceStyle: draft.pieceStyle,
+        frames: exportedFrames.map((frame) => ({
+          id: frame.id,
+          label: frame.label,
+          position: { ...frame.position },
+          arrows: frame.arrows.map((arrow) => ({ ...arrow })),
+          ...(frame.move ? { move: { ...frame.move } } : {}),
+        })),
+        createdAt: now,
+        updatedAt: now,
+      };
+      await appendSavedLine(line);
+      setStatus(t.lineSaved);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : t.lineSaveFailed);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function resetDraft() {
     const next = newDraft();
     setDraft(next);
@@ -764,7 +817,13 @@ export function ChessMaker() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></div>
+        <div className="view-switch" role="group" data-active-index={appView === "anki" ? 0 : 1}>
+          <span className="view-switch__indicator" aria-hidden="true" />
+          <button type="button" className={appView === "anki" ? "active" : ""} aria-pressed={appView === "anki"} onClick={() => setAppView("anki")}>{t.ankiTab}</button>
+          <button type="button" className={appView === "lines" ? "active" : ""} aria-pressed={appView === "lines"} onClick={() => setAppView("lines")}>{t.linesTab}</button>
+        </div>
         <div className="top-actions">
+          <button className="button ghost settings-button" type="button" onClick={() => setSettingsOpen(true)}>{t.settings}</button>
           <div className="language-switch" role="group" aria-label={t.language} data-language-index={languageIndex}>
             <span className="language-switch__indicator" aria-hidden="true" />
             {LANGUAGE_OPTIONS.map((option) => (
@@ -780,12 +839,12 @@ export function ChessMaker() {
               </button>
             ))}
           </div>
-          <button className="button ghost" type="button" onClick={resetDraft}>{t.newCard}</button>
+          {appView === "anki" && <button className="button ghost" type="button" onClick={resetDraft}>{t.newCard}</button>}
           <button className="button ghost desktop-only" type="button" onClick={closeApp}>{t.close}</button>
         </div>
       </header>
 
-      <section className="workspace">
+      {appView === "anki" && <section className="workspace">
         <aside className="panel details-panel">
           <label className="field">
             <span>{t.term}</span>
@@ -872,7 +931,10 @@ export function ChessMaker() {
           </div>
 
           <div className="export-stack">
-            <button className="button primary" type="button" onClick={exportAnki} disabled={busy}>{t.exportAnki}</button>
+            <div className="export-row">
+              <button className="button primary" type="button" onClick={exportAnki} disabled={busy}>{t.exportAnki}</button>
+              <button className="button" type="button" onClick={saveCurrentLine} disabled={busy}>{t.saveLine}</button>
+            </div>
             {draft.cardMode === "study" && <button className="button" type="button" onClick={downloadGif} disabled={busy || draft.frames.length < 2}>{t.downloadGif}</button>}
             <div className="sr-only" role="status" aria-live="polite">{status}</div>
           </div>
@@ -899,7 +961,7 @@ export function ChessMaker() {
                 const piece = draft.position[square];
                 const fileIndex = FILES.indexOf(square[0]);
                 const rank = Number(square[1]);
-                const light = (fileIndex + rank) % 2 === 1;
+                const light = (fileIndex + rank) % 2 === 0;
                 const bottomRow = index >= 56;
                 const leftColumn = index % 8 === 0;
                 return (
@@ -1007,7 +1069,8 @@ export function ChessMaker() {
             </>
           )}
         </aside>
-      </section>
+      </section>}
+      <LinesWorkspace active={appView === "lines"} language={language} settingsOpen={settingsOpen} onCloseSettings={() => setSettingsOpen(false)} />
       <canvas className="render-canvas" ref={previewCanvas} />
     </main>
   );
