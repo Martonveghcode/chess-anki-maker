@@ -26,3 +26,7 @@ Chess Anki Maker is a local editor for creating standard and interactive chess c
 - **Export:** Export Anki package builds an `.apkg` ready to import. Importing it creates the required note type automatically, so no manual card-template setup is needed. Re-exporting unchanged content keeps the same Anki note identity; changing the term, explanation, settings, or recorded positions automatically creates a new identity, without requiring **New card**.
 
 The desktop app stores the line library as `lines.json` in `%LOCALAPPDATA%\ChessAnkiMaker`.
+
+---
+
+Built by [Marton Vegh](https://marton.top/). Read the [project case study](https://marton.top/projects/chess-anki-maker/).
